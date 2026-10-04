@@ -1,0 +1,20 @@
+<?php
+
+namespace App\Listeners;
+
+use App\Models\User;
+use Illuminate\Auth\Events\Login;
+
+class UpdateLastLoginAt
+{
+    public function handle(Login $event): void
+    {
+        if (! $event->user instanceof User || $event->user->role !== 'job_seeker') {
+            return;
+        }
+
+        $event->user->forceFill([
+            'last_login_at' => now(),
+        ])->save();
+    }
+}

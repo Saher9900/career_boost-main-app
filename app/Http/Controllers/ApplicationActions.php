@@ -97,7 +97,7 @@ class ApplicationActions extends Controller
                 return $jobApplication;
             });
 
-            AnalyzeJobApplication::dispatch($jobApplication->id)->onConnection('database');
+            AnalyzeJobApplication::dispatch($jobApplication->id);
         } catch (Throwable $exception) {
             if ($jobApplication !== null) {
                 try {

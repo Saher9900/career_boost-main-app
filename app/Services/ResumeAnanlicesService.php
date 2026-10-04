@@ -104,10 +104,32 @@ class ResumeAnanlicesService
             ]);
 
         $response->throw();
-        $content = $response->json('choices.0.message.content');
+        $choice = $response->json('choices.0');
+        $message = is_array($choice) ? ($choice['message'] ?? null) : null;
+        $content = is_array($message) ? ($message['content'] ?? null) : null;
 
-        if (! is_string($content)) {
-            throw new UnexpectedValueException('OpenRouter returned no analysis content.');
+        if (is_array($content)) {
+            $content = implode('', array_map(
+                static fn (mixed $part): string => is_array($part) && is_string($part['text'] ?? null)
+                    ? $part['text']
+                    : '',
+                $content
+            ));
+        }
+
+        if (! is_string($content) || trim($content) === '') {
+            $metadata = array_filter([
+                'response_id' => $response->json('id'),
+                'model' => $response->json('model'),
+                'finish_reason' => is_array($choice) ? ($choice['finish_reason'] ?? null) : null,
+                'message_fields' => is_array($message) ? array_keys($message) : null,
+                'has_refusal' => is_array($message) && isset($message['refusal']),
+            ], static fn (mixed $value): bool => $value !== null);
+
+            throw new UnexpectedValueException(
+                'OpenRouter returned no analysis content. Response metadata: '
+                .json_encode($metadata, JSON_THROW_ON_ERROR)
+            );
         }
 
         $content = trim($content);

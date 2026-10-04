@@ -3,13 +3,14 @@
 namespace App\Http\Controllers;
 
 use App\Http\Requests\UploadResumeRequest;
+use App\Jobs\AnalyzeJobApplication;
 use App\Models\JobApplication;
 use App\Models\JobVacancy;
 use App\Models\Resume;
-use App\Services\ResumeAnanlicesService;
-use Illuminate\Http\Client\ConnectionException;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Support\Facades\Auth;
+use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Storage;
 use Illuminate\Support\Str;
 use RuntimeException;
 use Throwable;
@@ -25,13 +26,12 @@ class ApplicationActions extends Controller
 
     public function uploadResume(
         UploadResumeRequest $request,
-        string $jobVacancyId,
-        ResumeAnanlicesService $resumeAnalysisService
+        string $jobVacancyId
     ): RedirectResponse {
         $validated = $request->validated();
-        $jobVacancy = JobVacancy::findOrFail($jobVacancyId);
-        $errorField = $validated['resume_source'] === 'existing' ? 'existing_resume_id' : 'resume';
+        JobVacancy::findOrFail($jobVacancyId);
         $file = $request->file('resume');
+        $resume = null;
 
         if ($validated['resume_source'] === 'existing') {
             $resume = Resume::where('user_id', Auth::id())->findOrFail($validated['existing_resume_id']);
@@ -45,74 +45,80 @@ class ApplicationActions extends Controller
             $resume = null;
         }
 
-        try {
-            if ($resume) {
-                $resumeText = $resumeAnalysisService->extractText($resume->file_url);
-            } elseif ($file) {
-                $resumeText = $resumeAnalysisService->extractTextFromFile($file->getPathname());
-            } else {
-                throw new RuntimeException('The uploaded resume is unavailable.');
-            }
+        $storedResumePath = null;
 
-            if (trim($resumeText) === '') {
-                return back()->withErrors([
-                    $errorField => __('No selectable text could be extracted from this PDF. Please use a text-based PDF.'),
-                ])->withInput();
-            }
-
-            $analysis = $resumeAnalysisService->analyzeText($resumeText, $jobVacancy);
-        } catch (ConnectionException $exception) {
-            report($exception);
-
-            return back()->withErrors([
-                $errorField => __('AI analysis took too long to respond. Please try again.'),
-            ])->withInput();
-        } catch (Throwable $exception) {
-            report($exception);
-
-            return back()->withErrors([
-                $errorField => __('Resume analysis failed. Please try again later.'),
-            ])->withInput();
-        }
-
-        if ($resume) {
-            $resume->update($analysis['resume']);
-            $newResume = $resume;
-        } else {
-            if (! $file) {
-                return back()->withErrors([
-                    'resume' => __('Please select a PDF resume to upload.'),
-                ])->withInput();
-            }
-
+        if ($resume === null && $file) {
             $fileName = 'resume_'.time().'_'.Str::random(8).'.'.$file->getClientOriginalExtension();
-            $path = $file->storeAs('resumes', $fileName, 'cloud');
+            $storedResumePath = $file->storeAs('resumes', $fileName, 'cloud');
 
-            if (! is_string($path)) {
+            if (! is_string($storedResumePath)) {
                 return back()->withErrors([
                     'resume' => __('The resume could not be saved. Please try again.'),
                 ])->withInput();
             }
-
-            $newResume = Resume::create([
-                'file_name' => $file->getClientOriginalName(),
-                'file_url' => $path,
-                'contact_details' => json_encode([
-                    'name' => Auth::user()->name,
-                    'email' => Auth::user()->email,
-                ]),
-                'user_id' => Auth::user()->id,
-                ...$analysis['resume'],
-            ]);
         }
 
-        $jobApplication = JobApplication::create([
-            ...$analysis['application'],
-            'status' => 'pending',
-            'user_id' => Auth::user()->id,
-            'resume_id' => $newResume->id,
-            'job_vacancy_id' => $jobVacancyId,
-        ]);
+        $jobApplication = null;
+
+        try {
+            $jobApplication = DB::transaction(function () use ($file, $jobVacancyId, $resume, $storedResumePath) {
+                $user = Auth::user();
+
+                if ($resume === null) {
+                    if (! $file || ! is_string($storedResumePath)) {
+                        throw new RuntimeException('The uploaded resume is unavailable.');
+                    }
+
+                    $resume = Resume::create([
+                        'file_name' => $file->getClientOriginalName(),
+                        'file_url' => $storedResumePath,
+                        'contact_details' => json_encode([
+                            'name' => $user->name,
+                            'email' => $user->email,
+                        ]),
+                        'user_id' => $user->id,
+                        'education' => '',
+                        'summary' => '',
+                        'skills' => '',
+                        'experience' => '',
+                    ]);
+                }
+
+                $jobApplication = new JobApplication;
+                $jobApplication->forceFill([
+                    'status' => 'pending',
+                    'analysis_status' => 'pending',
+                    'user_id' => $user->id,
+                    'resume_id' => $resume->id,
+                    'job_vacancy_id' => $jobVacancyId,
+                ]);
+                $jobApplication->save();
+
+                return $jobApplication;
+            });
+
+            AnalyzeJobApplication::dispatch($jobApplication->id)->onConnection('database');
+        } catch (Throwable $exception) {
+            if ($jobApplication !== null) {
+                try {
+                    DB::transaction(function () use ($jobApplication, $storedResumePath) {
+                        $jobApplication->delete();
+
+                        if (is_string($storedResumePath)) {
+                            Resume::whereKey($jobApplication->resume_id)->delete();
+                        }
+                    });
+                } catch (Throwable $cleanupException) {
+                    report($cleanupException);
+                }
+            }
+
+            if (is_string($storedResumePath) && ! Storage::disk('cloud')->delete($storedResumePath)) {
+                report(new RuntimeException('The uploaded resume could not be removed after application submission failed.'));
+            }
+
+            throw $exception;
+        }
 
         return to_route('profile.applications.show', $jobApplication)
             ->with('status', 'application-submitted');

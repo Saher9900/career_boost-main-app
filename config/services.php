@@ -42,7 +42,6 @@ return [
     'openrouter' => [
         'api_key' => env('OPENROUTER_API_KEY'),
         'model' => 'nvidia/nemotron-3-nano-omni-30b-a3b-reasoning:free'
-        
         ],
 
 ];

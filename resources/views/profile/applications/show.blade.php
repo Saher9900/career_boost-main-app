@@ -21,6 +21,16 @@
                 </div>
             @endif
 
+            @if ($application->analysis_status === 'pending')
+                <div role="status" class="mt-5 border-s-4 border-sky-600 bg-sky-50 px-4 py-3 text-sm text-sky-900">
+                    {{ __('Resume analysis is running in the background. Refresh this page in a moment to see your match score and feedback.') }}
+                </div>
+            @elseif ($application->analysis_status === 'failed')
+                <div role="alert" class="mt-5 border-s-4 border-amber-600 bg-amber-50 px-4 py-3 text-sm text-amber-900">
+                    {{ __('Resume analysis could not be completed. Please contact support or submit a new application later.') }}
+                </div>
+            @endif
+
             <article class="mt-6 border-y border-[#DCE9EB] bg-white px-5 py-7 sm:px-8 sm:py-9">
                 <div class="flex flex-wrap items-start justify-between gap-4 border-b border-[#E8F0F1] pb-6">
                     <div class="min-w-0">
@@ -52,7 +62,15 @@
                         </div>
                         <div>
                             <dt class="text-xs font-semibold uppercase text-gray-500">{{ __('Match score') }}</dt>
-                            <dd class="mt-1 text-sm text-[#344F54]">{{ $application->ai_score !== null ? $application->ai_score : __('Not available') }}</dd>
+                            <dd class="mt-1 text-sm text-[#344F54]">
+                                @if ($application->ai_score !== null)
+                                    {{ $application->ai_score }}
+                                @elseif ($application->analysis_status === 'pending')
+                                    {{ __('Analyzing') }}
+                                @else
+                                    {{ __('Not available') }}
+                                @endif
+                            </dd>
                         </div>
                         <div>
                             <dt class="text-xs font-semibold uppercase text-gray-500">{{ __('Resume submitted') }}</dt>

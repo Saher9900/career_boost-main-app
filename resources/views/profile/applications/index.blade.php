@@ -47,7 +47,15 @@
                             </div>
                             <div>
                                 <dt class="text-xs font-semibold uppercase text-gray-500">{{ __('Match score') }}</dt>
-                                <dd class="mt-1 text-sm text-[#344F54]">{{ $application->ai_score !== null ? $application->ai_score : __('Not available') }}</dd>
+                                <dd class="mt-1 text-sm text-[#344F54]">
+                                    @if ($application->ai_score !== null)
+                                        {{ $application->ai_score }}
+                                    @elseif ($application->analysis_status === 'pending')
+                                        {{ __('Analyzing') }}
+                                    @else
+                                        {{ __('Not available') }}
+                                    @endif
+                                </dd>
                             </div>
                         </dl>
                         <a href="{{ route('profile.applications.show', $application) }}"

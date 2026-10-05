@@ -33,7 +33,13 @@ Route::middleware(['auth', 'verified'])->group(function () {
 // Dashboard: the authenticated home page. The "auth" middleware redirects guests
 // to the login page, and "verified" requires a confirmed email address.
 Route::resource('job-vacancies', JobVacancyController::class)
-    ->middleware(['auth', 'verified']);
+    ->middleware(['auth', 'verified'])->except(['index', 'show']);
+
+Route::get('job-vacancies', [JobVacancyController::class, 'index'])
+    ->name('job-vacancies.index');
+
+Route::get('job-vacancies/{jobVacancy}', [JobVacancyController::class, 'show'])
+    ->name('job-vacancies.show');
 
 // Profile management, restricted to logged-in users. Each route is named so
 // views can generate URLs with route('profile.edit') instead of hardcoding paths.
@@ -55,4 +61,4 @@ Route::middleware('auth')->group(function () {
 // Loads the framework auth routes (login, register, password reset, email
 // verification, logout) kept in a separate file to keep this one readable.
 
-require __DIR__.'/auth.php';
+require __DIR__ . '/auth.php';

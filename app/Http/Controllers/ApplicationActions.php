@@ -69,7 +69,8 @@ class ApplicationActions extends Controller
                         throw new RuntimeException('The uploaded resume is unavailable.');
                     }
 
-                    $resume = Resume::create([
+                    $resume = new Resume;
+                    $resume->forceFill([
                         'file_name' => $file->getClientOriginalName(),
                         'file_url' => $storedResumePath,
                         'contact_details' => json_encode([
@@ -81,7 +82,8 @@ class ApplicationActions extends Controller
                         'summary' => '',
                         'skills' => '',
                         'experience' => '',
-                    ]);
+                        'analysis_status' => 'pending',
+                    ])->save();
                 }
 
                 $jobApplication = new JobApplication;

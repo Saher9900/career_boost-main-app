@@ -47,7 +47,10 @@ class AnalyzeJobApplication implements ShouldQueue
             throw new RuntimeException('The resume analysis did not return application feedback.');
         }
 
-        $resume->update($analysis['resume']);
+        $resume->forceFill([
+            ...$analysis['resume'],
+            'analysis_status' => 'completed',
+        ])->save();
         $application->forceFill([
             ...$applicationAnalysis,
             'analysis_status' => 'completed',
@@ -56,12 +59,16 @@ class AnalyzeJobApplication implements ShouldQueue
 
     public function failed(Throwable $exception): void
     {
-        $application = JobApplication::find($this->jobApplicationId);
+        $application = JobApplication::with('resume')->find($this->jobApplicationId);
 
         if ($application !== null) {
             $application->forceFill([
                 'analysis_status' => 'failed',
                 'ai_feedback' => __('Resume analysis could not be completed. Please try again later.'),
+            ])->save();
+
+            $application->resume?->forceFill([
+                'analysis_status' => 'failed',
             ])->save();
         }
 

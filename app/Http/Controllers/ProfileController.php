@@ -3,16 +3,17 @@
 namespace App\Http\Controllers;
 
 use App\Http\Requests\ProfileUpdateRequest;
+use App\Jobs\AnalyzeResume;
 use App\Models\JobApplication;
 use App\Models\Resume;
-use App\Services\ResumeAnanlicesService;
-use Illuminate\Http\Client\ConnectionException;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\Redirect;
+use Illuminate\Support\Facades\Storage;
 use Illuminate\Support\Str;
 use Illuminate\View\View;
+use RuntimeException;
 use Throwable;
 
 class ProfileController extends Controller
@@ -42,38 +43,13 @@ class ProfileController extends Controller
         ]);
     }
 
-    public function storeResume(Request $request, ResumeAnanlicesService $resumeAnalysisService): RedirectResponse
+    public function storeResume(Request $request): RedirectResponse
     {
         $validated = $request->validate([
             'resume' => ['required', 'file', 'mimes:pdf', 'max:5120'],
         ]);
 
         $file = $validated['resume'];
-
-        try {
-            $resumeText = $resumeAnalysisService->extractTextFromFile($file->getPathname());
-
-            if (trim($resumeText) === '') {
-                return back()->withErrors([
-                    'resume' => __('No selectable text could be extracted from this PDF. Please use a text-based PDF.'),
-                ])->withInput();
-            }
-
-            $analysis = $resumeAnalysisService->analyzeText($resumeText);
-        } catch (ConnectionException $exception) {
-            report($exception);
-
-            return back()->withErrors([
-                'resume' => __('AI analysis took too long to respond. Please try again.'),
-            ])->withInput();
-        } catch (Throwable $exception) {
-            report($exception);
-
-            return back()->withErrors([
-                'resume' => __('Resume analysis failed. Please try again later.'),
-            ])->withInput();
-        }
-
         $fileName = 'resume_'.time().'_'.Str::random(8).'.'.$file->getClientOriginalExtension();
         $path = $file->storeAs('resumes', $fileName, 'cloud');
 
@@ -83,18 +59,74 @@ class ProfileController extends Controller
             ])->withInput();
         }
 
-        Resume::create([
-            'file_name' => $file->getClientOriginalName(),
-            'file_url' => $path,
-            'contact_details' => json_encode([
-                'name' => $request->user()->name,
-                'email' => $request->user()->email,
-            ]),
-            'user_id' => $request->user()->id,
-            ...$analysis['resume'],
-        ]);
+        $resume = null;
+
+        try {
+            $resume = new Resume;
+            $resume->forceFill([
+                'file_name' => $file->getClientOriginalName(),
+                'file_url' => $path,
+                'contact_details' => json_encode([
+                    'name' => $request->user()->name,
+                    'email' => $request->user()->email,
+                ]),
+                'user_id' => $request->user()->id,
+                'education' => '',
+                'summary' => '',
+                'skills' => '',
+                'experience' => '',
+                'analysis_status' => 'pending',
+            ])->save();
+
+            AnalyzeResume::dispatch($resume->id);
+        } catch (Throwable $exception) {
+            report($exception);
+
+            if ($resume?->exists) {
+                try {
+                    $resume->forceDelete();
+                } catch (Throwable $cleanupException) {
+                    report($cleanupException);
+                }
+            }
+
+            if (! Storage::disk('cloud')->delete($path)) {
+                report(new RuntimeException('The uploaded resume could not be removed after queue dispatch failed.'));
+            }
+
+            return back()->withErrors([
+                'resume' => __('The resume could not be queued for analysis. Please try again later.'),
+            ])->withInput();
+        }
 
         return Redirect::route('profile.resumes.index')->with('status', 'resume-uploaded');
+    }
+
+    public function destroyResume(Request $request, Resume $resume): RedirectResponse
+    {
+        $resume = $request->user()->resumes()->findOrFail($resume->id);
+
+        if ($resume->jobApplications()->withTrashed()->exists()) {
+            return Redirect::route('profile.resumes.index')
+                ->withErrors([
+                    'resume' => __('This resume is attached to an application and cannot be deleted.'),
+                ]);
+        }
+
+        $disk = Storage::disk('cloud');
+
+        if ($disk->exists($resume->file_url) && ! $disk->delete($resume->file_url)) {
+            report(new RuntimeException('Unable to delete resume file from cloud storage.'));
+
+            return Redirect::route('profile.resumes.index')
+                ->withErrors([
+                    'resume' => __('The resume could not be deleted. Please try again later.'),
+                ]);
+        }
+
+        $resume->forceDelete();
+
+        return Redirect::route('profile.resumes.index')->with('status', 'resume-deleted');
     }
 
     public function applications(Request $request): View

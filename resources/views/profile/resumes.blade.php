@@ -31,12 +31,28 @@
                                 <div class="min-w-0">
                                     <h3 class="break-all text-lg font-semibold text-[#17343A]">{{ $resume->file_name }}</h3>
                                     <p class="mt-1 text-sm text-gray-500">{{ __('Added :date', ['date' => $resume->created_at->format('M j, Y')]) }}</p>
+                                    @if ($resume->analysis_status === 'pending')
+                                        <p role="status" class="mt-2 text-sm font-medium text-amber-700">{{ __('AI analysis is in progress.') }}</p>
+                                    @elseif ($resume->analysis_status === 'failed')
+                                        <p role="status" class="mt-2 text-sm font-medium text-red-700">{{ __('AI analysis could not be completed. You can upload the resume again to retry.') }}</p>
+                                    @else
+                                        <p class="mt-2 text-sm font-medium text-emerald-700">{{ __('AI analysis complete.') }}</p>
+                                    @endif
                                 </div>
                                 <a href="{{ rtrim((string) config('filesystems.disks.cloud.url'), '/') . '/' . ltrim($resume->file_url, '/') }}"
                                     target="_blank" rel="noopener noreferrer"
                                     class="inline-flex min-h-9 items-center justify-center rounded-md border border-[#B8D5D9] bg-white px-3 py-1.5 text-sm font-semibold text-[#0E6378] hover:bg-[#E6F3F5]">
                                     {{ __('Open PDF') }}
                                 </a>
+                                <form action="{{ route('profile.resumes.destroy', $resume) }}" method="POST"
+                                    onsubmit="return confirm('{{ __('Are you sure you want to delete this resume?') }}')">
+                                    @csrf
+                                    @method('DELETE')
+                                    <button type="submit"
+                                        class="inline-flex min-h-9 items-center justify-center rounded-md border border-red-200 bg-white px-3 py-1.5 text-sm font-semibold text-red-700 transition hover:bg-red-50 focus:outline-none focus:ring-2 focus:ring-red-500 focus:ring-offset-2">
+                                        {{ __('Delete') }}
+                                    </button>
+                                </form>
                             </div>
                             <dl class="mt-5 grid gap-x-6 gap-y-4 sm:grid-cols-2">
                                 @foreach ([__('Summary') => $resume->summary, __('Skills') => $resume->skills, __('Education') => $resume->education, __('Experience') => $resume->experience] as $label => $value)
@@ -62,10 +78,20 @@
                     <p class="mt-2 text-sm leading-6 text-gray-600">{{ __('Add a PDF to your profile so you can use it when applying for jobs.') }}</p>
 
                     @if (session('status') === 'resume-uploaded')
-                        <p class="mt-4 border-s-2 border-emerald-600 bg-emerald-50 px-3 py-2 text-sm text-emerald-800">
-                            {{ __('Resume added to your profile.') }}
+                        <p role="status" class="mt-4 border-s-2 border-emerald-600 bg-emerald-50 px-3 py-2 text-sm text-emerald-800">
+                            {{ __('Resume added to your profile. AI analysis is running in the background.') }}
                         </p>
                     @endif
+                    @if (session('status') === 'resume-deleted')
+                        <p role="status" class="mt-4 border-s-2 border-emerald-600 bg-emerald-50 px-3 py-2 text-sm text-emerald-800">
+                            {{ __('Resume deleted from your profile.') }}
+                        </p>
+                    @endif
+                    @error('resume')
+                        <p role="alert" class="mt-4 border-s-2 border-red-600 bg-red-50 px-3 py-2 text-sm text-red-800">
+                            {{ $message }}
+                        </p>
+                    @enderror
 
                     <form action="{{ route('profile.resumes.store') }}" method="POST" enctype="multipart/form-data" class="mt-5">
                         @csrf

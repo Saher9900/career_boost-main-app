@@ -48,6 +48,7 @@ Route::middleware('auth')->group(function () {
     Route::get('/profile/edit', [ProfileController::class, 'edit'])->name('profile.edit');
     Route::get('/profile/resumes', [ProfileController::class, 'resumes'])->name('profile.resumes.index');
     Route::post('/profile/resumes', [ProfileController::class, 'storeResume'])->name('profile.resumes.store');
+    Route::delete('/profile/resumes/{resume}', [ProfileController::class, 'destroyResume'])->name('profile.resumes.destroy');
     Route::get('/profile/applications', [ProfileController::class, 'applications'])->name('profile.applications.index');
     Route::get('/profile/applications/{jobApplication}', [ProfileController::class, 'application'])->name('profile.applications.show');
 
@@ -61,4 +62,4 @@ Route::middleware('auth')->group(function () {
 // Loads the framework auth routes (login, register, password reset, email
 // verification, logout) kept in a separate file to keep this one readable.
 
-require __DIR__ . '/auth.php';
+require __DIR__.'/auth.php';
